@@ -112,6 +112,23 @@ class GCSFS(FS):
         """Returns blob if exists or None otherwise"""
         return self.bucket.get_blob(key)
 
+    def _list_gcs_directories(self, prefix: str):
+        # from https://github.com/GoogleCloudPlatform/google-cloud-python/issues/920
+        iterator = self.bucket.list_blobs(prefix=prefix, delimiter=self.DELIMITER)
+        prefixes = set()
+        for page in iterator.pages:
+            #print(page, page.prefixes)
+            prefixes.update(page.prefixes)
+        return prefixes
+
+    def _is_dir(self, dirname_key: str):
+        # based on https://github.com/GoogleCloudPlatform/google-cloud-python/issues/920
+        iterator = self.bucket.list_blobs(prefix=dirname_key, delimiter=self.DELIMITER)
+        for page in iterator.pages:
+            if dirname_key + self.DELIMITER in page.prefixes:
+                return True
+        return False
+
     def getinfo(self, path: str, namespaces: Optional[List[str]] = None, check_parent_dir: bool = True) -> Info:
         if check_parent_dir:
             self.check()
@@ -122,7 +139,7 @@ class GCSFS(FS):
         if check_parent_dir:
             parent_dir = dirname(_path)
             parent_dir_key = self._path_to_dir_key(parent_dir)
-            if parent_dir != "/" and not self._get_blob(parent_dir_key):
+            if parent_dir != "/" and not self._get_blob(parent_dir_key) and not self._is_dir(self._path_to_key(parent_dir)):
                 raise errors.ResourceNotFound(path)
 
         if _path == "/":
@@ -139,7 +156,10 @@ class GCSFS(FS):
             # Check if there exists a blob with a slash at the end, return the corresponding directory Info
             return self._dir_info(path)
         else:
-            raise errors.ResourceNotFound(path)
+            if self._is_dir(key):
+                return self._dir_info(path)
+            else:
+                raise errors.ResourceNotFound(path)
 
     @staticmethod
     def _info_from_blob(blob: Blob, namespaces: Optional[List[str]] = None) -> Info:
