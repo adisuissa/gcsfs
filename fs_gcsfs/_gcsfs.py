@@ -84,7 +84,7 @@ class GCSFS(FS):
                 if root_marker is None:
                     blob = self.bucket.blob(self._prefix + GCSFS.DELIMITER)
                     blob.upload_from_string(b"")
-            elif strict and self._get_blob(self._prefix + GCSFS.DELIMITER) is None:
+            elif strict and self._get_blob(self._prefix + GCSFS.DELIMITER) is None and not self._is_dir(self._prefix):
                 raise errors.CreateFailed("Root path \"{}\" does not exist".format(root_path))
 
     def __repr__(self) -> str:
@@ -123,8 +123,10 @@ class GCSFS(FS):
 
     def _is_dir(self, dirname_key: str):
         # based on https://github.com/GoogleCloudPlatform/google-cloud-python/issues/920
+        #print("dirname_key:", dirname_key)
         iterator = self.bucket.list_blobs(prefix=dirname_key, delimiter=self.DELIMITER)
         for page in iterator.pages:
+            #print("page.prefixes:", page.prefixes)
             if dirname_key + self.DELIMITER in page.prefixes:
                 return True
         return False
@@ -152,14 +154,11 @@ class GCSFS(FS):
         if blob:
             # Check if there exists a blob at the provided path, return the corresponding object Info
             return self._info_from_blob(blob, namespaces)
-        elif self._get_blob(dir_key):
+        elif self._get_blob(dir_key) or self._is_dir(key):
             # Check if there exists a blob with a slash at the end, return the corresponding directory Info
             return self._dir_info(path)
         else:
-            if self._is_dir(key):
-                return self._dir_info(path)
-            else:
-                raise errors.ResourceNotFound(path)
+            raise errors.ResourceNotFound(path)
 
     @staticmethod
     def _info_from_blob(blob: Blob, namespaces: Optional[List[str]] = None) -> Info:
